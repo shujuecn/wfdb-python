@@ -5,6 +5,7 @@ import numpy as np
 from wfdb.io.record import Record, rdrecord
 from wfdb.io.util import downround, upround
 from wfdb.io.annotation import Annotation
+import matplotlib.ticker as mticker
 
 
 def _expand_channels(signal):
@@ -34,9 +35,7 @@ def _expand_channels(signal):
         elif signal.ndim == 2:
             return list(signal.transpose())
         else:
-            raise ValueError(
-                "invalid shape for signal array: {}".format(signal.shape)
-            )
+            raise ValueError("invalid shape for signal array: {}".format(signal.shape))
     else:
         signal = list(signal)
         if any(s.ndim != 1 for s in signal):
@@ -74,8 +73,9 @@ def _get_sampling_freq(sampling_freq, n_sig, frame_freq):
     elif hasattr(sampling_freq, "__len__"):
         if len(sampling_freq) != n_sig:
             raise ValueError(
-                "length mismatch: n_sig = {}, "
-                "len(sampling_freq) = {}".format(n_sig, len(sampling_freq))
+                "length mismatch: n_sig = {}, " "len(sampling_freq) = {}".format(
+                    n_sig, len(sampling_freq)
+                )
             )
         return list(sampling_freq)
     else:
@@ -108,8 +108,9 @@ def _get_ann_freq(ann_freq, n_annot, frame_freq):
     elif hasattr(ann_freq, "__len__"):
         if len(ann_freq) != n_annot:
             raise ValueError(
-                "length mismatch: n_annot = {}, "
-                "len(ann_freq) = {}".format(n_annot, len(ann_freq))
+                "length mismatch: n_annot = {}, " "len(ann_freq) = {}".format(
+                    n_annot, len(ann_freq)
+                )
             )
         return list(ann_freq)
     else:
@@ -129,6 +130,8 @@ def plot_items(
     title=None,
     sig_style=[""],
     ann_style=["r*"],
+    line_color=None,
+    bg_color="white",
     ecg_grids=[],
     figsize=None,
     sharex=False,
@@ -137,6 +140,7 @@ def plot_items(
     return_fig_axes=False,
     sampling_freq=None,
     ann_freq=None,
+    close_axis=False,
 ):
     """
     Subplot individual channels of signals and/or annotations.
@@ -255,7 +259,7 @@ def plot_items(
     ann_freq = _get_ann_freq(ann_freq, n_annot, fs)
 
     # Create figure
-    fig, axes = _create_figure(n_subplots, sharex, sharey, figsize)
+    fig, axes = _create_figure(n_subplots, sharex, sharey, figsize, bg_color)
     try:
         if signal is not None:
             _plot_signal(
@@ -266,6 +270,7 @@ def plot_items(
                 time_units,
                 sig_style,
                 axes,
+                line_color=line_color,
                 sampling_freq=sampling_freq,
             )
 
@@ -320,6 +325,17 @@ def plot_items(
             ylabel,
             title,
         )
+
+        # 如果 close_axis 为 True，则关闭所有子图的坐标轴和图形边框显示
+        if close_axis:
+            # 如果 axes 是一个可迭代对象（例如，当有多个子图时），对每个轴调用 axis("off")
+            if hasattr(axes, "__iter__"):
+                for ax in axes:
+                    ax.axis("off")
+            else:
+                # 如果只有一个子图，则 axes 可能不是一个迭代对象
+                axes.axis("off")
+
     except BaseException:
         plt.close(fig)
         raise
@@ -392,7 +408,7 @@ def _get_plot_dims(signal, ann_samp):
     return sig_len, n_sig, n_annot, max(n_sig, n_annot)
 
 
-def _create_figure(n_subplots, sharex, sharey, figsize):
+def _create_figure(n_subplots, sharex, sharey, figsize, bg_color):
     """
     Create the plot figure and subplot axes.
 
@@ -419,13 +435,27 @@ def _create_figure(n_subplots, sharex, sharey, figsize):
     fig, axes = plt.subplots(
         nrows=n_subplots, ncols=1, sharex=sharex, sharey=sharey, figsize=figsize
     )
+    fig.patch.set_facecolor(bg_color)  # 设置背景颜色
+    
     if n_subplots == 1:
         axes = [axes]
+    # 设置 y 轴刻度格式
+    for ax in axes:
+        ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.2f"))
+
     return fig, axes
 
 
 def _plot_signal(
-    signal, sig_len, n_sig, fs, time_units, sig_style, axes, sampling_freq=None
+    signal,
+    sig_len,
+    n_sig,
+    fs,
+    time_units,
+    sig_style,
+    axes,
+    line_color,
+    sampling_freq=None,
 ):
     """
     Plot signal channels.
@@ -499,7 +529,7 @@ def _plot_signal(
                 t /= downsample_factor[time_units]
             tarrays[ch_len, ch_freq] = t
 
-        axes[ch].plot(t, signal[ch], sig_style[ch], zorder=3)
+        axes[ch].plot(t, signal[ch], sig_style[ch], zorder=3, color=line_color)
 
 
 def _plot_annotation(
@@ -612,16 +642,12 @@ def _plot_annotation(
                     'the "rdann" function?'
                 )
 
-            axes[ch].plot(
-                ann_samp[ch] / downsample_factor, y, ann_style[ch], zorder=4
-            )
+            axes[ch].plot(ann_samp[ch] / downsample_factor, y, ann_style[ch], zorder=4)
 
             # Plot the annotation symbols if any
             if ann_sym is not None and ann_sym[ch] is not None:
                 for i, s in enumerate(ann_sym[ch]):
-                    axes[ch].annotate(
-                        s, (ann_samp[ch][i] / downsample_factor, y[i])
-                    )
+                    axes[ch].annotate(s, (ann_samp[ch][i] / downsample_factor, y[i]))
 
 
 def _plot_ecg_grids(ecg_grids, fs, units, time_units, axes, sampling_freq=None):
@@ -843,9 +869,7 @@ def _label_figure(
         # put placeholders
         n_missing_labels = n_subplots - len(ylabel)
         if n_missing_labels:
-            ylabel = ylabel + [
-                "ch_%d/NU" % i for i in range(len(ylabel), n_subplots)
-            ]
+            ylabel = ylabel + ["ch_%d/NU" % i for i in range(len(ylabel), n_subplots)]
 
     for ch in range(n_subplots):
         axes[ch].set_ylabel(ylabel[ch])
@@ -859,10 +883,13 @@ def plot_wfdb(
     title=None,
     sig_style=[""],
     ann_style=["r*"],
+    line_color=None,
+    bg_color="white",
     ecg_grids=[],
     figsize=None,
     return_fig=False,
     sharex="auto",
+    close_axis=False,
 ):
     """
     Subplot individual channels of a WFDB record and/or annotation.
@@ -948,9 +975,7 @@ def plot_wfdb(
         ylabel,
         record_name,
         sig_units,
-    ) = _get_wfdb_plot_items(
-        record=record, annotation=annotation, plot_sym=plot_sym
-    )
+    ) = _get_wfdb_plot_items(record=record, annotation=annotation, plot_sym=plot_sym)
 
     if record:
         if record.e_p_signal is not None or record.e_d_signal is not None:
@@ -993,12 +1018,15 @@ def plot_wfdb(
         sig_style=sig_style,
         sig_units=sig_units,
         ann_style=ann_style,
+        line_color=line_color,
+        bg_color=bg_color,
         ecg_grids=ecg_grids,
         figsize=figsize,
         return_fig=return_fig,
         sampling_freq=sampling_freq,
         ann_freq=ann_freq,
         sharex=sharex,
+        close_axis=close_axis,
     )
 
 
@@ -1183,9 +1211,7 @@ def plot_all_records(directory=""):
     directory = directory or os.getcwd()
 
     headers = [
-        f
-        for f in os.listdir(directory)
-        if os.path.isfile(os.path.join(directory, f))
+        f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))
     ]
     headers = [f for f in headers if f.endswith(".hea")]
 
